@@ -554,63 +554,65 @@ function lockSetup(){
 
 // ── API ───────────────────────────────────────────────────────────────────────
 const NAME_MAP={
-  // football-data.org names
-  'United States':'USA','Korea Republic':'South Korea','IR Iran':'Iran',
-  'Türkiye':'Turkey',"Côte d'Ivoire":'Ivory Coast',
-  'Cape Verde':'Cabo Verde','Bosnia and Herzegovina':'Bosnia',
-  'Bosnia & Herzegovina':'Bosnia','Curaçao':'Curaçao','Curacao':'Curaçao',
-  'Czechia':'Czech Republic','Congo DR':'DR Congo',
-  // API-Football names
-  'United States of America':'USA','South Korea':'South Korea',
-  'Iran':'Iran','Turkey':'Turkey','Ivory Coast':'Ivory Coast',
-  'Cape Verde Islands':'Cabo Verde','Bosnia':'Bosnia',
-  'Czech Republic':'Czech Republic','DR Congo':'DR Congo',
-  'Republic of Ireland':'Ireland','Korea DPR':'North Korea',
-  'USA':'USA','Scotland':'Scotland','Norway':'Norway',
-  'Austria':'Austria','Sweden':'Sweden','Croatia':'Croatia',
-  'Switzerland':'Switzerland','Morocco':'Morocco',
-  'New Zealand':'New Zealand','Paraguay':'Paraguay',
-  'Ecuador':'Ecuador','Uruguay':'Uruguay','Colombia':'Colombia',
-  'Senegal':'Senegal','Ghana':'Ghana','Algeria':'Algeria',
-  'Australia':'Australia','Japan':'Japan','Mexico':'Mexico',
-  'Canada':'Canada','Serbia':'Serbia','Argentina':'Argentina',
+  // football-data.org variations
+  'United States':'USA',
+  'Korea Republic':'South Korea',
+  'IR Iran':'Iran',
+  'Türkiye':'Turkey',
+  "Côte d'Ivoire":'Ivory Coast',
+  'Cape Verde':'Cabo Verde',
+  'Cape Verde Islands':'Cabo Verde',
+  'Bosnia and Herzegovina':'Bosnia',
+  'Bosnia & Herzegovina':'Bosnia',
+  'Bosnia-Herzegovina':'Bosnia',
+  'Bosnia-H.':'Bosnia',
+  'Czechia':'Czech Republic',
+  'Congo DR':'DR Congo',
+  'Korea DPR':'North Korea',
 };
 function norm(n){ return NAME_MAP[n]||n; }
 
 async function fetchLive(){
   setDot('loading','Fetching scores…');
   try{
-    const r = await fetch('https://api-football-v1.p.rapidapi.com/v3/fixtures?league=1&season=2026', {
-      method: 'GET',
-      headers:{
-        'x-rapidapi-key': '583ac57d75msh3d1162e8377caf6p1e11d0jsn4351df80db55',
-        'x-rapidapi-host': 'api-football-v1.p.rapidapi.com'
-      }
-    });
-    if(!r.ok) throw new Error('API returned '+r.status);
+    const r = await fetch('/.netlify/functions/scores');
+    if(!r.ok) throw new Error('Function returned '+r.status);
     const d = await r.json();
-    if(d.errors && Object.keys(d.errors).length) throw new Error(JSON.stringify(d.errors));
-    console.log('API-Football: got',d.response?.length,'fixtures');
-    if(d.response?.length){
-      console.log('Sample:',d.response[0].teams?.home?.name,'v',d.response[0].teams?.away?.name,'status:',d.response[0].fixture?.status?.short);
-    }
-    (d.response||[]).forEach(m=>{
-      const h=norm(m.teams?.home?.name||'');
-      const a=norm(m.teams?.away?.name||'');
-      const fix=FIXTURES.find(f=>norm(f.home)===h && norm(f.away)===a);
+    console.log('Scores loaded:',d.matches?.length,'matches');
+    // Map football-data.org stage names to our internal stage names
+    const API_STAGE_MAP={
+      'GROUP_STAGE':'GROUP_STAGE',
+      'LAST_32':'ROUND_OF_32',
+      'LAST_16':'ROUND_OF_16',
+      'QUARTER_FINALS':'QUARTER_FINALS',
+      'SEMI_FINALS':'SEMI_FINALS',
+      'THIRD_PLACE':'THIRD_PLACE',
+      'FINAL':'FINAL'
+    };
+
+    (d.matches||[]).forEach(m=>{
+      const h=norm(m.homeTeam?.name||''), a=norm(m.awayTeam?.name||'');
+      // Try matching by normalised name first
+      let fix=FIXTURES.find(f=>norm(f.home)===h && norm(f.away)===a);
+      // Fallback: match by stage + date if names are TBD
+      if(!fix && m.utcDate){
+        const apiDate=m.utcDate.slice(0,16);
+        const apiStage=API_STAGE_MAP[m.stage]||m.stage;
+        fix=FIXTURES.find(f=>f.stage===apiStage && f.utc.slice(0,16)===apiDate);
+      }
       if(!fix){
-        const st=m.fixture?.status?.short;
-        if(st==='FT'||st==='AET') console.warn('UNMATCHED FT:',m.teams?.home?.name,'v',m.teams?.away?.name,'->',h,'v',a);
+        if(m.status==='FINISHED') console.warn('UNMATCHED:',m.homeTeam?.name,'v',m.awayTeam?.name,'->',h,'v',a);
         return;
       }
-      const st=m.fixture?.status?.short||'NS';
-      let status='SCHEDULED';
-      if(st==='FT'||st==='AET'||st==='PEN') status='FINISHED';
-      else if(['1H','2H','ET','P','HT','BT','INT'].includes(st)) status='IN_PLAY';
+      const status=m.status||'SCHEDULED';
+      let mappedStatus='SCHEDULED';
+      if(status==='FINISHED') mappedStatus='FINISHED';
+      else if(status==='IN_PLAY'||status==='PAUSED') mappedStatus='IN_PLAY';
       liveScores[fix.id]={
-        hs: (status==='FINISHED'||status==='IN_PLAY') ? m.goals?.home : null,
-        as: (status==='FINISHED'||status==='IN_PLAY') ? m.goals?.away : null,
-        status, minute: m.fixture?.status?.elapsed||null
+        hs:m.score?.fullTime?.home,
+        as:m.score?.fullTime?.away,
+        status:mappedStatus,
+        minute:m.minute
       };
     });
     setDot('ok','Updated '+new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}));
