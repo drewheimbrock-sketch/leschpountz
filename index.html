@@ -65,6 +65,10 @@ header{padding:32px 0 20px;border-bottom:1px solid var(--border);margin-bottom:2
 .draft-badge{font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;margin-top:2px;}
 .draft-badge span{color:var(--accent);}
 .no-teams{color:var(--muted);font-size:11px;font-style:italic;}
+.team-rows{display:flex;flex-direction:column;gap:5px;margin-top:4px;}
+.team-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.team-breakdown{font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;flex:1;}
+.team-pts{font-size:11px;color:var(--accent);font-family:'DM Mono',monospace;font-weight:600;white-space:nowrap;}
 
 /* FIXTURES */
 .fx-filter{display:flex;gap:6px;margin-bottom:20px;flex-wrap:wrap;}
@@ -316,7 +320,7 @@ const ALL_TEAMS = [
   {name:'Haiti',tier:4},{name:'New Zealand',tier:4}
 ];
 
-const BASE_PTS  = {GROUP_STAGE:5,ROUND_OF_32:10,ROUND_OF_16:10,QUARTER_FINALS:20,SEMI_FINALS:35,RUNNER_UP:55,CHAMPION:80};
+const BASE_PTS  = {GROUP_STAGE:5,ROUND_OF_32:5,ROUND_OF_16:10,QUARTER_FINALS:20,SEMI_FINALS:35,RUNNER_UP:55,CHAMPION:80};
 const TIER_MULT = {1:1,2:2,3:4,4:8};
 const STAGE_ORDER = ['GROUP_STAGE','ROUND_OF_32','ROUND_OF_16','QUARTER_FINALS','SEMI_FINALS','RUNNER_UP','CHAMPION'];
 const STAGE_LABEL = {
@@ -658,8 +662,10 @@ function getProgress(){
   Object.entries(gs).forEach(([g,teams])=>{
     const ranked=Object.entries(teams)
       .sort((a,b)=>b[1].pts-a[1].pts||b[1].gd-a[1].gd||b[1].gf-a[1].gf);
-    const allPlayed=ranked.every(([,s])=>s.played===3);
-    if(allPlayed) ranked.slice(0,2).forEach(([team])=>mark(team,'GROUP_STAGE'));
+    // All 6 group games must be finished (each of 4 teams plays 3 games = 12 total played)
+    const totalPlayed=Object.values(teams).reduce((s,t)=>s+t.played,0);
+    const allDone = totalPlayed===12;
+    if(allDone) mark(ranked[0][0],'GROUP_STAGE'); // only group winner scores
   });
 
   // Knockout stage
@@ -692,18 +698,64 @@ function calcScore(player){
 }
 
 // ── STANDINGS ─────────────────────────────────────────────────────────────────
+function calcBreakdown(player){
+  const prog=getProgress();
+  return (assignments[player]||[]).map(tname=>{
+    const td=ALL_TEAMS.find(x=>x.name===tname);
+    if(!td) return null;
+    const reached=prog[tname];
+    if(!reached) return {team:tname,tier:td.tier,pts:0,stage:null};
+    const idx=STAGE_ORDER.indexOf(reached);
+    let pts=0;
+    const stages=[];
+    for(let i=0;i<=idx;i++){
+      const p=(BASE_PTS[STAGE_ORDER[i]]||0)*TIER_MULT[td.tier];
+      pts+=p;
+      stages.push({stage:STAGE_ORDER[i],pts:p});
+    }
+    return {team:tname,tier:td.tier,pts,reached,stages};
+  }).filter(Boolean);
+}
+
+const STAGE_SHORT={
+  GROUP_STAGE:'Group win',ROUND_OF_32:'R32 win',ROUND_OF_16:'R16 win',
+  QUARTER_FINALS:'QF win',SEMI_FINALS:'SF win',RUNNER_UP:'Runner-up',CHAMPION:'Champion'
+};
+
 function renderStandings(){
-  const ranked=PLAYERS.map(p=>({name:p,score:calcScore(p)})).sort((a,b)=>b.score-a.score);
+  const ranked=PLAYERS.map(p=>{
+    const breakdown=calcBreakdown(p);
+    const score=breakdown.reduce((s,b)=>s+b.pts,0);
+    return {name:p,score,breakdown};
+  }).sort((a,b)=>b.score-a.score);
+
   document.getElementById('standings-out').innerHTML=`<div class="slist">${
     ranked.map((r,i)=>{
       const pos=i+1,cls=pos===1?'p1':pos===2?'p2':pos===3?'p3':'';
       const teams=assignments[r.name]||[];
-      const chips=teams.map(t=>{const td=ALL_TEAMS.find(x=>x.name===t);return td?`<span class="chip c${td.tier}">${t}</span>`:''}).join('');
+      const noTeams=teams.length===0;
+
+      // Build team rows with breakdown
+      const teamRows=r.breakdown.map(b=>{
+        const tierCls=`c${b.tier}`;
+        const stageText=b.stages&&b.stages.length
+          ? b.stages.map(s=>`${STAGE_SHORT[s.stage]||s.stage} +${s.pts}`).join(' · ')
+          : '—';
+        return `<div class="team-row">
+          <span class="chip ${tierCls}">${b.team}</span>
+          <span class="team-breakdown">${b.pts>0?stageText:'No points yet'}</span>
+          <span class="team-pts">${b.pts>0?'+'+b.pts:''}</span>
+        </div>`;
+      }).join('');
+
       return `<div class="scard ${cls}">
         <div class="rank">${pos}</div>
         <div class="pinfo">
           <div class="pname">${r.name}</div>
-          <div class="chips">${chips||'<span class="no-teams">Assign teams after draft</span>'}</div>
+          ${noTeams
+            ? '<span class="no-teams">Assign teams after draft</span>'
+            : `<div class="team-rows">${teamRows}</div>`
+          }
         </div>
         <div class="pts-block">
           <div class="pts-num">${r.score}</div>
