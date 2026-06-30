@@ -649,15 +649,21 @@ function setDot(s,msg){
 
 // ── SCORING ───────────────────────────────────────────────────────────────────
 function getProgress(){
+  // prog[team] = { wonGroup: bool, knockout: highest knockout stage reached or null }
   const prog={};
-  function mark(team,stage){
+  function ensure(team){
+    if(!prog[team]) prog[team]={wonGroup:false,knockout:null};
+    return prog[team];
+  }
+  function markKnockout(team,stage){
     if(!team||team.startsWith('TBD')) return;
-    const ci=STAGE_ORDER.indexOf(prog[team]||'');
+    const p=ensure(team);
+    const ci=STAGE_ORDER.indexOf(p.knockout||'ROUND_OF_32')-1; // baseline before R32
     const ni=STAGE_ORDER.indexOf(stage);
-    if(ni>ci) prog[team]=stage;
+    if(p.knockout===null || ni>STAGE_ORDER.indexOf(p.knockout)) p.knockout=stage;
   }
 
-  // Build group standings — only top 2 per group earn GROUP_STAGE points
+  // Build group standings — only the group WINNER (1st place) earns GROUP_STAGE points
   const gs={};
   FIXTURES.filter(f=>f.stage==='GROUP_STAGE').forEach(f=>{
     const ld=liveScores[f.id];
@@ -678,13 +684,13 @@ function getProgress(){
   Object.entries(gs).forEach(([g,teams])=>{
     const ranked=Object.entries(teams)
       .sort((a,b)=>b[1].pts-a[1].pts||b[1].gd-a[1].gd||b[1].gf-a[1].gf);
-    // All 6 group games must be finished (each of 4 teams plays 3 games = 12 total played)
+    // All 6 group games must be finished (4 teams x 3 games each = 12 total played)
     const totalPlayed=Object.values(teams).reduce((s,t)=>s+t.played,0);
     const allDone = totalPlayed===12;
-    if(allDone) mark(ranked[0][0],'GROUP_STAGE'); // only group winner scores
+    if(allDone) ensure(ranked[0][0]).wonGroup=true; // ONLY 1st place — no group points for 2nd
   });
 
-  // Knockout stage
+  // Knockout stage — tracked completely separately from group win status
   FIXTURES.filter(f=>f.stage!=='GROUP_STAGE'&&f.stage!=='THIRD_PLACE').forEach(f=>{
     const ld=liveScores[f.id];
     if(!ld||ld.status!=='FINISHED') return;
@@ -694,11 +700,31 @@ function getProgress(){
     if(hs>as){win=f.home;lose=f.away;}
     else if(as>hs){win=f.away;lose=f.home;}
     if(win){
-      if(f.stage==='FINAL'){mark(win,'CHAMPION');mark(lose,'RUNNER_UP');}
-      else mark(win,f.stage);
+      if(f.stage==='FINAL'){markKnockout(win,'CHAMPION');markKnockout(lose,'RUNNER_UP');}
+      else markKnockout(win,f.stage);
     }
   });
   return prog;
+}
+
+// Build points + stage breakdown for one team given its prog entry {wonGroup, knockout}
+function teamPointsBreakdown(tier, p){
+  const m=TIER_MULT[tier];
+  let pts=0;
+  const stages=[];
+  if(p && p.wonGroup){
+    const v=BASE_PTS.GROUP_STAGE*m;
+    pts+=v; stages.push({stage:'GROUP_STAGE',pts:v});
+  }
+  if(p && p.knockout){
+    const koIdx=STAGE_ORDER.indexOf(p.knockout); // index within full STAGE_ORDER incl GROUP_STAGE at 0
+    // Knockout stages start at index 1 (ROUND_OF_32). Award every knockout stage up to and including reached.
+    for(let i=1;i<=koIdx;i++){
+      const v=(BASE_PTS[STAGE_ORDER[i]]||0)*m;
+      pts+=v; stages.push({stage:STAGE_ORDER[i],pts:v});
+    }
+  }
+  return {pts,stages};
 }
 
 function calcScore(player){
@@ -706,10 +732,8 @@ function calcScore(player){
   return (assignments[player]||[]).reduce((sum,tname)=>{
     const td=ALL_TEAMS.find(x=>x.name===tname);
     if(!td) return sum;
-    const reached=prog[tname]; if(!reached) return sum;
-    const idx=STAGE_ORDER.indexOf(reached);
-    for(let i=0;i<=idx;i++) sum+=(BASE_PTS[STAGE_ORDER[i]]||0)*TIER_MULT[td.tier];
-    return sum;
+    const {pts}=teamPointsBreakdown(td.tier, prog[tname]);
+    return sum+pts;
   },0);
 }
 
@@ -719,17 +743,8 @@ function calcBreakdown(player){
   return (assignments[player]||[]).map(tname=>{
     const td=ALL_TEAMS.find(x=>x.name===tname);
     if(!td) return null;
-    const reached=prog[tname];
-    if(!reached) return {team:tname,tier:td.tier,pts:0,stage:null};
-    const idx=STAGE_ORDER.indexOf(reached);
-    let pts=0;
-    const stages=[];
-    for(let i=0;i<=idx;i++){
-      const p=(BASE_PTS[STAGE_ORDER[i]]||0)*TIER_MULT[td.tier];
-      pts+=p;
-      stages.push({stage:STAGE_ORDER[i],pts:p});
-    }
-    return {team:tname,tier:td.tier,pts,reached,stages};
+    const {pts,stages}=teamPointsBreakdown(td.tier, prog[tname]);
+    return {team:tname,tier:td.tier,pts,stages};
   }).filter(Boolean);
 }
 
