@@ -707,21 +707,40 @@ function getProgress(){
   return prog;
 }
 
+// Base points PER STAGE (each independent milestone, additive)
+// Win Group: 5/10/20/40 (T1/T2/T3/T4)
+// R32 Win:  10/20/40/80 — independent of group result
+// R16 Win:  10/20/40/80 — independent of group/R32 result
+// QF Win:   20/40/80/160
+// Runner-up: 55/110/220/440
+// Champion: 80/160/320/640
+const STAGE_PTS = {
+  GROUP_STAGE:    {1:5,  2:10, 3:20, 4:40},
+  ROUND_OF_32:    {1:10, 2:20, 3:40, 4:80},
+  ROUND_OF_16:    {1:10, 2:20, 3:40, 4:80},
+  QUARTER_FINALS: {1:20, 2:40, 3:80, 4:160},
+  RUNNER_UP:      {1:55, 2:110,3:220,4:440},
+  CHAMPION:       {1:80, 2:160,3:320,4:640},
+};
+const KNOCKOUT_ORDER=['ROUND_OF_32','ROUND_OF_16','QUARTER_FINALS','RUNNER_UP','CHAMPION'];
+
 // Build points + stage breakdown for one team given its prog entry {wonGroup, knockout}
+// Group win and knockout progress are SEPARATE, ADDITIVE achievements.
+// Reaching a knockout stage also awards every earlier knockout stage along the way
+// (e.g. winning QF means you also won R32 and R16 — all three add up).
 function teamPointsBreakdown(tier, p){
-  const m=TIER_MULT[tier];
   let pts=0;
   const stages=[];
   if(p && p.wonGroup){
-    const v=BASE_PTS.GROUP_STAGE*m;
+    const v=STAGE_PTS.GROUP_STAGE[tier];
     pts+=v; stages.push({stage:'GROUP_STAGE',pts:v});
   }
   if(p && p.knockout){
-    const koIdx=STAGE_ORDER.indexOf(p.knockout); // index within full STAGE_ORDER incl GROUP_STAGE at 0
-    // Knockout stages start at index 1 (ROUND_OF_32). Award every knockout stage up to and including reached.
-    for(let i=1;i<=koIdx;i++){
-      const v=(BASE_PTS[STAGE_ORDER[i]]||0)*m;
-      pts+=v; stages.push({stage:STAGE_ORDER[i],pts:v});
+    const koIdx=KNOCKOUT_ORDER.indexOf(p.knockout);
+    for(let i=0;i<=koIdx;i++){
+      const stageName=KNOCKOUT_ORDER[i];
+      const v=STAGE_PTS[stageName][tier];
+      pts+=v; stages.push({stage:stageName,pts:v});
     }
   }
   return {pts,stages};
