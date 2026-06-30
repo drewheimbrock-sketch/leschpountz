@@ -594,30 +594,46 @@ async function fetchLive(){
       'FINAL':'FINAL'
     };
 
+    // PASS 1 — match group stage games by team name (reliable, names are known)
+    const usedFixtureIds = new Set();
+    const unmatchedApiKnockout = [];
+
     (d.matches||[]).forEach(m=>{
       const h=norm(m.homeTeam?.name||''), a=norm(m.awayTeam?.name||'');
-      // Try matching by normalised name first
-      let fix=FIXTURES.find(f=>norm(f.home)===h && norm(f.away)===a);
-      // Fallback: match by stage + date if names are TBD
-      if(!fix && m.utcDate){
-        const apiDate=m.utcDate.slice(0,16);
-        const apiStage=API_STAGE_MAP[m.stage]||m.stage;
-        fix=FIXTURES.find(f=>f.stage===apiStage && f.utc.slice(0,16)===apiDate);
+      const fix=FIXTURES.find(f=>f.stage==='GROUP_STAGE' && norm(f.home)===h && norm(f.away)===a);
+      if(fix){
+        usedFixtureIds.add(fix.id);
+        const status=m.status||'SCHEDULED';
+        let mappedStatus='SCHEDULED';
+        if(status==='FINISHED') mappedStatus='FINISHED';
+        else if(status==='IN_PLAY'||status==='PAUSED') mappedStatus='IN_PLAY';
+        liveScores[fix.id]={hs:m.score?.fullTime?.home,as:m.score?.fullTime?.away,status:mappedStatus,minute:m.minute};
+      } else if(m.stage!=='GROUP_STAGE'){
+        unmatchedApiKnockout.push(m);
       }
-      if(!fix){
-        if(m.status==='FINISHED') console.warn('UNMATCHED:',m.homeTeam?.name,'v',m.awayTeam?.name,'->',h,'v',a);
-        return;
-      }
-      const status=m.status||'SCHEDULED';
-      let mappedStatus='SCHEDULED';
-      if(status==='FINISHED') mappedStatus='FINISHED';
-      else if(status==='IN_PLAY'||status==='PAUSED') mappedStatus='IN_PLAY';
-      liveScores[fix.id]={
-        hs:m.score?.fullTime?.home,
-        as:m.score?.fullTime?.away,
-        status:mappedStatus,
-        minute:m.minute
-      };
+    });
+
+    // PASS 2 — match knockout games by stage + sorted order (handles real team names replacing TBD)
+    const stageList=['LAST_32','LAST_16','QUARTER_FINALS','SEMI_FINALS','THIRD_PLACE','FINAL'];
+    stageList.forEach(apiStageName=>{
+      const ourStage=API_STAGE_MAP[apiStageName]||apiStageName;
+      // Our fixtures for this stage, not yet used, sorted by id (matches creation order = bracket order)
+      const ourSlots=FIXTURES.filter(f=>f.stage===ourStage && !usedFixtureIds.has(f.id)).sort((a,b)=>a.id-b.id);
+      // API matches for this stage, sorted by date (bracket order)
+      const apiMatches=unmatchedApiKnockout.filter(m=>m.stage===apiStageName).sort((a,b)=>new Date(a.utcDate)-new Date(b.utcDate));
+      apiMatches.forEach((m,idx)=>{
+        const fix=ourSlots[idx];
+        if(!fix) return;
+        usedFixtureIds.add(fix.id);
+        const status=m.status||'SCHEDULED';
+        let mappedStatus='SCHEDULED';
+        if(status==='FINISHED') mappedStatus='FINISHED';
+        else if(status==='IN_PLAY'||status==='PAUSED') mappedStatus='IN_PLAY';
+        liveScores[fix.id]={hs:m.score?.fullTime?.home,as:m.score?.fullTime?.away,status:mappedStatus,minute:m.minute};
+        // Also update the fixture's display name so the Fixtures tab shows real teams instead of TBD
+        if(m.homeTeam?.name) fix.home=norm(m.homeTeam.name);
+        if(m.awayTeam?.name) fix.away=norm(m.awayTeam.name);
+      });
     });
     setDot('ok','Updated '+new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}));
   }catch(e){
