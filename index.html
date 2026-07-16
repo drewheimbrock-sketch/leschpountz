@@ -629,10 +629,12 @@ async function fetchLive(){
         let mappedStatus='SCHEDULED';
         if(status==='FINISHED') mappedStatus='FINISHED';
         else if(status==='IN_PLAY'||status==='PAUSED') mappedStatus='IN_PLAY';
-        liveScores[fix.id]={hs:m.score?.fullTime?.home,as:m.score?.fullTime?.away,status:mappedStatus,minute:m.minute,winner:m.score?.winner};
+        const homeNorm=norm(m.homeTeam?.name||'');
+        const awayNorm=norm(m.awayTeam?.name||'');
+        liveScores[fix.id]={hs:m.score?.fullTime?.home,as:m.score?.fullTime?.away,status:mappedStatus,minute:m.minute,winner:m.score?.winner,homeTeam:homeNorm,awayTeam:awayNorm};
         // Also update the fixture's display name so the Fixtures tab shows real teams instead of TBD
-        if(m.homeTeam?.name) fix.home=norm(m.homeTeam.name);
-        if(m.awayTeam?.name) fix.away=norm(m.awayTeam.name);
+        if(homeNorm) fix.home=homeNorm;
+        if(awayNorm) fix.away=awayNorm;
       });
     });
     setDot('ok','Updated '+new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}));
@@ -697,9 +699,11 @@ function getProgress(){
     const {hs,as}=ld;
     if(hs==null||as==null) return;
     let win=null,lose=null;
-    // Use API's score.winner field to handle extra time and penalties correctly
-    if(ld.winner==='HOME_TEAM'||hs>as){win=f.home;lose=f.away;}
-    else if(ld.winner==='AWAY_TEAM'||as>hs){win=f.away;lose=f.home;}
+    // Use stored team names from API (not fixture placeholders) + winner field for AET/pens
+    const home = ld.homeTeam || f.home;
+    const away = ld.awayTeam || f.away;
+    if(ld.winner==='HOME_TEAM'||(ld.winner==null&&hs>as)){win=home;lose=away;}
+    else if(ld.winner==='AWAY_TEAM'||(ld.winner==null&&as>hs)){win=away;lose=home;}
     if(win){
       if(f.stage==='FINAL'){markKnockout(win,'CHAMPION');markKnockout(lose,'RUNNER_UP');}
       else markKnockout(win,f.stage);
