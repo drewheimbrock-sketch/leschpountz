@@ -607,7 +607,7 @@ async function fetchLive(){
         let mappedStatus='SCHEDULED';
         if(status==='FINISHED') mappedStatus='FINISHED';
         else if(status==='IN_PLAY'||status==='PAUSED') mappedStatus='IN_PLAY';
-        liveScores[fix.id]={hs:m.score?.fullTime?.home,as:m.score?.fullTime?.away,status:mappedStatus,minute:m.minute};
+        liveScores[fix.id]={hs:m.score?.fullTime?.home,as:m.score?.fullTime?.away,status:mappedStatus,minute:m.minute,winner:m.score?.winner};
       } else if(m.stage!=='GROUP_STAGE'){
         unmatchedApiKnockout.push(m);
       }
@@ -629,7 +629,7 @@ async function fetchLive(){
         let mappedStatus='SCHEDULED';
         if(status==='FINISHED') mappedStatus='FINISHED';
         else if(status==='IN_PLAY'||status==='PAUSED') mappedStatus='IN_PLAY';
-        liveScores[fix.id]={hs:m.score?.fullTime?.home,as:m.score?.fullTime?.away,status:mappedStatus,minute:m.minute};
+        liveScores[fix.id]={hs:m.score?.fullTime?.home,as:m.score?.fullTime?.away,status:mappedStatus,minute:m.minute,winner:m.score?.winner};
         // Also update the fixture's display name so the Fixtures tab shows real teams instead of TBD
         if(m.homeTeam?.name) fix.home=norm(m.homeTeam.name);
         if(m.awayTeam?.name) fix.away=norm(m.awayTeam.name);
@@ -697,8 +697,9 @@ function getProgress(){
     const {hs,as}=ld;
     if(hs==null||as==null) return;
     let win=null,lose=null;
-    if(hs>as){win=f.home;lose=f.away;}
-    else if(as>hs){win=f.away;lose=f.home;}
+    // Use API's score.winner field to handle extra time and penalties correctly
+    if(ld.winner==='HOME_TEAM'||hs>as){win=f.home;lose=f.away;}
+    else if(ld.winner==='AWAY_TEAM'||as>hs){win=f.away;lose=f.home;}
     if(win){
       if(f.stage==='FINAL'){markKnockout(win,'CHAMPION');markKnockout(lose,'RUNNER_UP');}
       else markKnockout(win,f.stage);
