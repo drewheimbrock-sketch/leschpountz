@@ -745,6 +745,8 @@ function teamPointsBreakdown(tier, p){
     const koIdx=KNOCKOUT_ORDER.indexOf(p.knockout);
     for(let i=0;i<=koIdx;i++){
       const stageName=KNOCKOUT_ORDER[i];
+      // RUNNER_UP and CHAMPION are mutually exclusive — skip RUNNER_UP if team won the final
+      if(stageName==='RUNNER_UP' && p.knockout==='CHAMPION') continue;
       const v=STAGE_PTS[stageName][tier];
       pts+=v; stages.push({stage:stageName,pts:v});
     }
